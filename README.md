@@ -2,43 +2,6 @@
 
 `cgl-libs` 是铜傀儡（CopperGolem）生态的**唯一官方元数据源**：启动器运行时需要的、会随时间变化且不由用户本机产生的数据，全部从这里拉取。本仓库只存放元数据与索引，不存放体积庞大的二进制本体。
 
-本仓库的完整规格见设计文档 `docs/cgl-libs.md`（在铜傀儡主仓库 `docs/` 下）。本 README 面向模块作者与提交者。
-
-## 一、三层职责
-
-| 层 | 承载内容 | 存放位置 |
-|---|---|---|
-| 索引层 | 各清单/分片的路径、大小、摘要、生成时间 | 本仓库内（小文件，秒级拉取） |
-| 元数据层 | 模块条目、MCBE 版本条目、校验摘要 | 本仓库内（分片 JSON） |
-| 资产层 | 模块安装包、图标、游戏版本整包 | GitHub Releases 资产 / 模块作者自有 CDN / 微软 CDN，本仓库只存 URL 与 sha256 |
-
-## 二、目录结构
-
-```
-cgl-libs/
-├─ README.md                      # 本文件：仓库说明 + 如何提交模块
-├─ LICENSE                        # 仓库元数据许可（CC0-1.0）
-├─ CODEOWNERS                     # modules/** 与 schema/** 的必需审核人
-├─ schema/                        # 全部数据契约的 JSON Schema（draft 2020-12）
-│  ├─ index.schema.json           # index.json
-│  ├─ module-entry.schema.json    # 单条模块条目
-│  ├─ module-shard.schema.json    # 模块分片
-│  ├─ module-index.schema.json    # modules/_index.json
-│  ├─ by-id.schema.json           # modules/by-id.json
-│  ├─ mcbe-manifest.schema.json   # mcbe/manifest.json
-│  ├─ mcbe-meta.schema.json       # mcbe/meta.json
-│  └─ README.md                   # schema 变更与 schema_version 演进规则
-├─ modules/                       # 模块元数据分片（含生成物，见下）
-├─ mcbe/                          # MCBE 版本元数据（manifest.json 与 meta.json）
-├─ assets/icons/                  # 模块图标 <module-id>.png（<= 32 KB）
-├─ index.json                     # 顶层索引（唯一稳定入口，CI 生成）
-├─ index.json.sha256              # index.json 摘要（防降级锚点）
-├─ index.json.minisig             # index.json 的 minisign 签名
-├─ .github/
-│  ├─ workflows/                  # validate.yml / build-index.yml / sync-mcbe.yml
-│  └─ PULL_REQUEST_TEMPLATE.md    # 模块提交模板
-└─ tools/                         # 校验与生成脚本（Node，无第三方运行时依赖）
-```
 
 ### 生成物：不要手工编辑
 
@@ -48,17 +11,6 @@ cgl-libs/
 
 模块作者**只需要**新增/修改分片内的条目与图标；索引与分片格式由工具统一产出。
 
-## 三、客户端如何使用（一句话链路）
-
-```
-拉取 index.json                     → 校验 sha256 + minisign 验签 → 缓存，并写入防降级锚点
-  → 读 modules/_index.json          → 校验 sha256 → 得到分片清单
-  → 按需拉取 modules/<range>.json    → 校验 sha256 → 合并进本地缓存
-  → 展示：与本地已注册模块按 id 关联
-  → 安装：下载 assets[].url → 校验 sha256 → 解包到 modules_dir() → 登记并启用
-```
-
-三级校验链缺一不可：`index.json`（sha256 + minisign）→ 分片/清单（sha256）→ 安装包与图标（sha256）。客户端**不提供**任何「忽略校验」开关。
 
 ## 四、如何提交一个模块
 
@@ -186,9 +138,3 @@ node tools/sign.mjs
 - 每个模块条目**必须**填 `license`；`proprietary` 的模块不得进入 `stable`。
 - 启动器需在设置「关于」Tab 提供「开源许可」页，列出所有已装模块的 `license` 与 `repo` 链接。
 - 内核自身引入的闭源二进制与本仓库是**两条独立的合规线**，不可互相豁免。本仓库不应收录任何需要「随启动器分发闭源 DLL」的模块，除非已明确授权。
-
-## 十、约定
-
-- 提交信息头用英文，正文用中文。
-- 禁止使用 emoji。
-- 数据契约的变更规则见 [schema/README.md](schema/README.md)。
