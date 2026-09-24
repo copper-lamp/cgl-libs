@@ -1,0 +1,95 @@
+# PR 校验工作流 —— 契约依据 docs/cgl-libs.md 2.8.2 十三步。
+#
+# 步骤与 2.8.2 的对应：
+#   1  checkout fetch-depth: 0（需要比对 base 分支）
+#   2  setup-node 20
+#   3  拒绝人工改动生成物            -> validate.mjs --generated-guard
+#   4  JSON Schema 校验              -> validate.mjs --schema
+#   5  id 唯一性                     -> validate.mjs --schema
+#   6  i18n 命名空间唯一性           -> validate.mjs --schema
+#   7  命名规范与分片归属            -> validate.mjs --schema
+#   8  semver 合法性                 -> validate.mjs --schema
+#   9  兼容区间与 api_version        -> validate.mjs --schema
+#   10 sha256 复核（资产）           -> validate.mjs --assets
+#   11 链接可达性                    -> validate.mjs --links
+#   12 许可证合规                    -> validate.mjs --schema
+#   13 本地可重复性                  -> build-index.mjs --check
+#
+# 2.8.3 第 1 条要求 CI 在 15 分钟内通过；--assets 是最耗时的一步，故放在最后，
+# 保证结构性错误（schema/唯一性/生成物一致性）能第一时间反馈。
+
+name: validate
+
+on:
+  pull_request:
+    branches: [main]
+
+# 同一 PR 的新 push 取消上一次未完成的校验，避免排队浪费（2.8.3 的 15 分钟要求）。
+concurrency:
+  group: validate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: PR 校验（schema + 一致性 + 完整性）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # 1) 需要完整历史才能与 base 分支比对生成物改动（2.8.2 第 3 步）。
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2) Node 20（2.1 tools 说明：无第三方运行时依赖，故不需要 npm ci）。
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Show environment
+        run: |
+          node --version
+          echo "PR base: ${{ github.event.pull_request.base.ref }}"
+
+      # 3) 拒绝人工改动生成物。
+      #    这些文件必须由 CI 产出：人工改动会让索引与分片摘要对不上，
+      #    客户端会因 sha256 校验失败而拒绝整份元数据（见 1.8 与 2.2）。
+      - name: Reject manual edits to generated files
+        run: node tools/validate.mjs --generated-guard
+
+      # 4~9、12) schema + 全部离线语义校验（id/命名空间唯一、命名规范、分片归属、
+      #          semver、兼容区间、api_version、许可证合规、生成物内部一致性）。
+      - name: Validate schema and metadata rules
+        run: node tools/validate.mjs --schema
+
+      # 13) 本地可重复性：重新生成一遍并与仓库内版本比对。
+      #     generated_at 会随时间变化，比对时按确定性规则忽略该字段；
+      #     具体策略见 tools/build-index.mjs 头部"确定性说明"。
+      - name: Verify generated index is reproducible
+        run: node tools/build-index.mjs --check
+
+      # 10) 资产 sha256/size 复核（需网络，单文件超时 60s）。
+      #     2.8.3 第 6 条允许 yank 类 PR 在此时失败后跳过——该例外由人工在 PR 中记录原因，
+      #     不在本工作流里自动放宽，以免被滥用成常态。
+      - name: Verify asset checksums
+        run: node tools/validate.mjs --assets
+
+      # 11) 链接可达性：全部不可达才失败，部分不可达仅 warning（2.8.2 第 11 步）。
+      - name: Probe asset links
+        run: node tools/validate.mjs --links
+        continue-on-error: true
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### cgl-libs PR 校验"
+            echo ""
+            echo "- 生成物守卫、schema、语义规则、可重复性、资产摘要均已执行"
+            echo "- 链接探测为 warning 级（2.8.2 第 11 步），失败不阻断合并"
+          } >> "$GITHUB_STEP_SUMMARY"

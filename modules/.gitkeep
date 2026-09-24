@@ -1,0 +1,3 @@
+# 该目录存放模块元数据分片（modules/<range>.json）与生成物（_index.json、by-id.json）。
+# 分片、_index.json、by-id.json 全部由 tools/build-index.mjs 生成，人工修改会被 CI 拒绝。
+# 本文件仅用于保留空目录；首次运行 node tools/build-index.mjs 生成分片后可删除。

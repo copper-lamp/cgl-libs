@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/copper-lamp/cgl-libs/main/schema/mcbe-manifest.schema.json",
+  "title": "cgl-libs MCBE 版本元数据清单 mcbe/manifest.json",
+  "description": "MCBE 版本元数据主清单结构，契约依据 docs/cgl-libs.md 2.4.3。本清单采用索引式统一入口：它不取代上游 LiteLDev/minecraft-windows-gdk-version-db，而是同步一份结构化快照并为其提供 sha256 完整性锚点（上游清单只提供 md5，md5 不作为安全边界）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "upstream",
+    "preview_versions",
+    "release_versions"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "与 index.json 同源，必须一致。"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "本次同步时间，RFC3339 UTC。"
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "commit",
+        "raw_sha256",
+        "sources",
+        "file_version"
+      ],
+      "description": "上游事实源信息。cgl-libs 不镜像内容、不取代三镜像：上游仓库为数据事实源，三镜像为传输通道，本仓库为稳定入口与摘要锚点（见 2.4.1）。",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "description": "上游仓库，固定为 LiteLDev/minecraft-windows-gdk-version-db。",
+          "const": "LiteLDev/minecraft-windows-gdk-version-db"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "同步时的上游 commit sha（40 位小写十六进制）。"
+        },
+        "raw_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "上游 historical_versions.json 原始字节的 sha256（小写十六进制）。这是把上游清单从尽力而为升级为可验证的关键字段。"
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          },
+          "description": "抓取时使用的镜像地址列表，按可达性排序，快照该次抓取的实际顺序。上游清单顶层键为下划线 file_version，条目为 {version, urls, timestamp, md5}。"
+        },
+        "file_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "上游清单顶层 file_version，用于判断上游 schema 变更。"
+        }
+      }
+    },
+    "preview_versions": {
+      "type": "array",
+      "description": "快照预览版条目，字段与上游 VersionEntry 一致。",
+      "items": {
+        "$ref": "#/$defs/versionEntry"
+      }
+    },
+    "release_versions": {
+      "type": "array",
+      "description": "快照正式版条目，字段与上游 VersionEntry 一致。",
+      "items": {
+        "$ref": "#/$defs/versionEntry"
+      }
+    }
+  },
+  "$defs": {
+    "versionEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "urls",
+        "timestamp",
+        "md5"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "展示名，如 Preview 1.21.120.21 或 1.21.130.22。"
+        },
+        "urls": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          },
+          "description": "微软 CDN 直链，.xboxlive.cn 在前。"
+        },
+        "timestamp": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix 秒。"
+        },
+        "md5": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{32}$",
+          "description": "保留上游原值（客户端沿用现有 md5 自验逻辑），不作为安全边界：下载引擎只校验 sha256，md5 早已不适合对抗性场景（见 2.4.2 第 4 点）。"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+# CODEOWNERS · cgl-libs
+#
+# 依据 docs/cgl-libs.md 2.8.3：CODEOWNERS 指定维护者为 modules/** 与 schema/** 的必需审核人。
+# 审核人检查三件事：包内容是否与描述一致、权限声明是否与代码行为一致、作者身份是否可追责。
+# 首个来自新作者的模块需两名维护者复核。
+
+# 默认：仓库内任何变更都需要维护者审核。
+*                       @copper-lamp/maintainers
+
+# 模块条目：新增/更新版本/yank 都必须人工审核，不能绕过。
+modules/**              @copper-lamp/maintainers
+
+# 数据契约：schema 变更影响全部客户端，必须由维护者审核并同步升 schema_version。
+schema/**               @copper-lamp/maintainers
+
+# 模块图标资产随条目一同审核（图标是用户可见的信任元素）。
+assets/**               @copper-lamp/maintainers
+
+# MCBE 版本元数据由 sync-mcbe.yml 自动同步，仍要求维护者确认上游变更。
+mcbe/**                 @copper-lamp/maintainers
+
+# CI 与生成工具：改动会影响索引生成结果与校验强度。
+tools/**                @copper-lamp/maintainers
+.github/workflows/**    @copper-lamp/maintainers
+
+# 顶层生成物由 CI 拥有，人工修改会被 validate.yml 拒绝；此处的 ownership 仅用于变更通知。
+index.json              @copper-lamp/maintainers
+index.json.sha256       @copper-lamp/maintainers
+index.json.minisig      @copper-lamp/maintainers

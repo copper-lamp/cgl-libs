@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/copper-lamp/cgl-libs/main/schema/module-index.schema.json",
+  "title": "cgl-libs 模块分片清单 modules/_index.json",
+  "description": "面向只关心模块的消费者的分片清单，契约依据 docs/cgl-libs.md 2.3.3。它与顶层 index.json 是有意冗余的：_index.json 文件小、单一职责，面向模块列表页；index.json 面向未来新增数据类型。两者由 CI 从同一份数据生成，不会漂移。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "total",
+    "shards"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "与 index.json 同源，必须一致。"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "生成时间，RFC3339 UTC。"
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "模块条目总数（各分片 count 之和）。"
+    },
+    "shards": {
+      "type": "array",
+      "description": "分片列表。",
+      "items": {
+        "$ref": "#/$defs/shard"
+      }
+    }
+  },
+  "$defs": {
+    "shard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "range",
+        "path",
+        "count",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "range": {
+          "type": "string",
+          "pattern": "^([a-z]-[a-z]|[0-9]-[0-9]|_other)$",
+          "description": "范围标识，如 s-u。"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^modules/[^/]+\\.json$",
+          "description": "相对路径，如 modules/s-u.json。"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "分片内条目数。"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "分片字节数。依 1.8，单分片不得超过 262144 字节（256 KB），由 CI 强制。"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "分片内容 sha256（小写十六进制）。客户端以分片 sha256 为粒度判断是否需要重新拉取，见 3.3 增量更新。"
+        }
+      }
+    }
+  }
+}

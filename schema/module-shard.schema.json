@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/copper-lamp/cgl-libs/main/schema/module-shard.schema.json",
+  "title": "cgl-libs 模块分片 module-shard",
+  "description": "模块元数据分片文件结构，契约依据 docs/cgl-libs.md 2.3.1。分片按 id 首字母范围切分，单文件上限 256 KB（超出由 CI 失败而非自动再切分，见 2.3.4）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "range",
+    "modules"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "与 index.json 同源，必须一致。客户端按 3.1 做大小比较：文件声明高于本地支持值即拒绝。"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "生成时间，RFC3339 UTC。"
+    },
+    "range": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^([a-z]-[a-z]|[0-9]-[0-9]|_other)$",
+      "description": "该分片覆盖的首字母范围，如 s-u、0-9、_other。依 2.3.4，首字符属于 [0-9] 归 0-9.json，属于 [a-z] 按七段字母范围归片，其余（CJK 等）归 _other.json（防御性保留）。切分规则：键取 id 的首字符。"
+    },
+    "modules": {
+      "type": "array",
+      "description": "模块条目数组，结构见 2.3.2。分片内条目按 id 字典序稳定排序（由 build-index.mjs 保证确定性）。",
+      "items": {
+        "$ref": "https://raw.githubusercontent.com/copper-lamp/cgl-libs/main/schema/module-entry.schema.json"
+      }
+    }
+  }
+}

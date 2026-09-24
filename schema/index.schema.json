@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/copper-lamp/cgl-libs/main/schema/index.schema.json",
+  "title": "cgl-libs 顶层索引 index.json",
+  "description": "客户端唯一硬编码入口所返回的索引结构。契约依据：docs/cgl-libs.md 2.2。顶层 additionalProperties 为 true：依 3.1 规则 2，客户端必须忽略未知字段，仓库可先发字段、客户端后支持。index.json 自身不列入 entries（避免自引用），其完整性由 index.json.sha256 与 index.json.minisig 提供。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_at",
+    "repo_commit",
+    "min_launcher",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "元数据契约版本，当前为 1。客户端规则见 docs/cgl-libs.md 3.1：相同即完全兼容；客户端更高则按旧规则解析；客户端更低必须拒绝，不做尽力解析。"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "本次生成时间，RFC3339 UTC。用于诊断数据陈旧程度，同时是客户端防降级锚点（trust/anchor.json 记录 highest_generated_at）的比较依据，见 docs/cgl-libs.md 2.5 规则 3。"
+    },
+    "repo_commit": {
+      "type": "string",
+      "minLength": 7,
+      "maxLength": 40,
+      "pattern": "^[0-9a-f]+$",
+      "description": "生成该索引时的 cgl-libs commit sha（小写十六进制），便于问题溯源。与 generated_at 一同参与防降级判定。"
+    },
+    "min_launcher": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\\+([0-9a-zA-Z-]+(\\.[0-9a-zA-Z-]+)*))?$",
+      "description": "服务该索引所需的最低启动器版本（严格 semver）。高于当前启动器版本时，模块列表页必须展示需要升级启动器，而不是静默不显示模块，见 docs/cgl-libs.md 2.5 规则 5。"
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "description": "各分片/清单的条目数组。不包含 index.json 自身。",
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "hex64": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "小写十六进制 sha256 摘要。"
+    },
+    "entry": {
+      "type": "object",
+      "description": "单个索引条目。内层 additionalProperties 为 false 以强制契约：客户端从这里定位并校验每一份分片/清单。",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "sha256",
+        "size",
+        "urls",
+        "cache_ttl_sec"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "module_index",
+            "mcbe_manifest",
+            "module_shard",
+            "module_by_id"
+          ],
+          "description": "条目类型。依 3.1 规则 4，未来可新增枚举值；客户端遇到未知值必须忽略该条目而非报错。"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/].*$",
+          "description": "相对仓库根的路径，如 modules/_index.json。必须是相对路径，不允许以 / 开头。"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "该文件内容的 sha256（小写十六进制）。缺摘要的条目必须被客户端拒绝，见需求 R3。"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "字节数，用于进度显示与完整性预检。"
+        },
+        "urls": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://",
+            "description": "镜像绝对地址，必须为 https（全链路 https，见 3.2 镜像劫持缓解）。"
+          },
+          "description": "镜像绝对地址，第一个为主镜像。索引层固定走 GitHub raw + jsdelivr + gh-proxy 三段，不走用户在设置里配置的第三方镜像，见 2.6。"
+        },
+        "cache_ttl_sec": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "建议缓存 TTL（秒）。index.json 的 TTL 取 entries[].cache_ttl_sec 的最小值，见 2.9.2。"
+        }
+      }
+    }
+  }
+}

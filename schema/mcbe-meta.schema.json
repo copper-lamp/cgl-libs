@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/copper-lamp/cgl-libs/main/schema/mcbe-meta.schema.json",
+  "title": "cgl-libs MCBE 同步元信息 mcbe/meta.json",
+  "description": "MCBE 同步元信息子集，契约依据 docs/cgl-libs.md 2.4.3 末尾。供轻量检查上游是否变化，而不必下整份清单；同时为 mcbe/manifest.json 提供 sha256 锚点。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "upstream",
+    "counts",
+    "manifest_path",
+    "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "与 index.json 同源，必须一致。"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "本次同步时间，RFC3339 UTC。"
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo",
+        "commit",
+        "raw_sha256",
+        "sources",
+        "file_version"
+      ],
+      "description": "上游事实源信息，与 mcbe/manifest.json 的 upstream 段逐字一致。",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "const": "LiteLDev/minecraft-windows-gdk-version-db",
+          "description": "上游仓库，固定为 LiteLDev/minecraft-windows-gdk-version-db。"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "同步时的上游 commit sha（40 位小写十六进制）。"
+        },
+        "raw_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "上游 historical_versions.json 原始字节的 sha256（小写十六进制）。"
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          },
+          "description": "抓取时使用的镜像地址列表，按可达性排序。"
+        },
+        "file_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "上游清单顶层 file_version。"
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preview",
+        "release"
+      ],
+      "description": "条目计数，用于轻量比对本次同步是否改变内容。",
+      "properties": {
+        "preview": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "preview_versions 条目数。"
+        },
+        "release": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "release_versions 条目数。"
+        }
+      }
+    },
+    "manifest_path": {
+      "type": "string",
+      "const": "mcbe/manifest.json",
+      "description": "主清单在仓库内的相对路径。"
+    },
+    "manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "mcbe/manifest.json 内容的 sha256（小写十六进制）。"
+    }
+  }
+}

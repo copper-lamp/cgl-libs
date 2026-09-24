@@ -1,0 +1,133 @@
+# 合并后自动生成索引 —— 契约依据 docs/cgl-libs.md 2.8.4。
+#
+# 流程：build-index -> sign -> git-auto-commit。
+# 生成的产物：index.json / index.json.sha256 / index.json.minisig /
+#             modules/_index.json / modules/by-id.json / 各分片。
+
+name: build-index
+
+on:
+  push:
+    branches: [main]
+    # 只在会改变元数据内容的路径上触发（2.8.4 第 1 步）。
+    paths:
+      - 'modules/**'
+      - 'mcbe/**'
+      - 'assets/**'
+      - 'schema/**'
+      - 'tools/**'
+      - '.github/workflows/build-index.yml'
+    # 防循环（2.8.4 第 6 步）：生成物在仓库根目录，必须显式排除。
+    # 没有这段，本工作流提交 index.json 后会被自己的 push 再次触发，形成无限循环。
+    paths-ignore:
+      - 'index.json'
+      - 'index.json.sha256'
+      - 'index.json.minisig'
+
+# 索引必须串行生成：两次并发运行会互相覆盖生成物与提交，导致 main 上出现
+# "分片 sha256 与 _index.json 记录值不一致"的中间态（违反 1.8 一致性要求）。
+concurrency:
+  group: build-index-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-index:
+    name: 重建索引并提交
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 需要完整历史以便提交与溯源；token 需可写才能 push 生成物。
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 生成 index.json / 分片 / _index.json / by-id.json / index.json.sha256。
+      # GITHUB_SHA 由 runner 注入，脚本据此写入 repo_commit（2.8.4 第 3 步）。
+      - name: Build index
+        run: node tools/build-index.mjs
+
+      # 分片超过 256 KB 时 build-index 会以非 0 退出并提示调整字母范围表（2.3.4）。
+      # 该失败是刻意的：自动再切分会改变 range 语义，导致客户端缓存失效、URL 不稳定。
+
+      # 生成 minisign 签名（2.8.4 第 4 步）。
+      # 密钥来自仓库 Secret MINISIGN_SECRET_KEY；缺失时 sign.mjs 会明确失败而不是
+      # 写出占位签名（2.5 规定 minisig 是客户端的安全锚点）。
+      - name: Sign index
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: node tools/sign.mjs
+
+      # 提交前先自查：避免把一份验签不过或结构不对的索引推上 main。
+      - name: Verify signature before commit
+        env:
+          MINISIGN_PUBLIC_KEY: ${{ secrets.MINISIGN_PUBLIC_KEY }}
+        run: node tools/sign.mjs --verify
+
+      - name: Verify reproducibility
+        run: node tools/build-index.mjs --check
+
+      - name: Collect stats for commit message
+        id: stats
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const idx = JSON.parse(fs.readFileSync("index.json", "utf8"));
+            const mods = JSON.parse(fs.readFileSync("modules/_index.json", "utf8"));
+            const shards = idx.entries.filter((e) => e.kind === "module_shard").length;
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `modules=${mods.total}\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `shards=${shards}\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `entries=${idx.entries.length}\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `commit=${idx.repo_commit}\n`);
+          '
+
+      # 5) 提交生成物。message 头英文、正文中文（AGENTS.md 约定）。
+      #    git-auto-commit-action 在无变化时会跳过提交（2.8.4 第 5 步：
+      #    避免无意义提交导致 jsdelivr 缓存失效）。
+      - name: Commit generated artifacts
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: |
+            chore: rebuild metadata index
+
+            本次由 build-index 工作流自动生成，请勿人工编辑这些文件。
+
+            - 模块条目：${{ steps.stats.outputs.modules }} 条
+            - 模块分片：${{ steps.stats.outputs.shards }} 个
+            - 索引条目：${{ steps.stats.outputs.entries }} 个
+            - 基于 commit：${{ steps.stats.outputs.commit }}
+
+            生成物清单：index.json、index.json.sha256、index.json.minisig、
+            modules/_index.json、modules/by-id.json 及各分片。
+          commit_options: '--no-verify'
+          file_pattern: |
+            index.json
+            index.json.sha256
+            index.json.minisig
+            modules/_index.json
+            modules/by-id.json
+            modules/*.json
+          skip_dirty_check: false
+          skip_fetch: false
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### cgl-libs 索引重建"
+            echo ""
+            echo "- 模块条目：${{ steps.stats.outputs.modules }}"
+            echo "- 分片数：${{ steps.stats.outputs.shards }}"
+            echo "- 索引条目：${{ steps.stats.outputs.entries }}"
+            echo "- 签名：已生成并自校验通过"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/copper-lamp/cgl-libs/main/schema/module-entry.schema.json",
+  "title": "cgl-libs 模块条目 module-entry",
+  "description": "单条模块收录条目的结构，契约依据 docs/cgl-libs.md 2.3.2，字段映射依据 2.3.6（与 cgl-models 2.10.1 互为镜像）。条目由 bot 从模块 manifest 单向派生，审核状态类字段由 cgl-libs 维护者拥有。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "i18n_namespace",
+    "display_name",
+    "summary",
+    "author",
+    "repo",
+    "license",
+    "channel",
+    "version",
+    "published_at",
+    "platforms",
+    "min_launcher",
+    "max_launcher",
+    "api_version",
+    "icon",
+    "assets",
+    "permissions",
+    "permissions_derived",
+    "changelog",
+    "status",
+    "yanked",
+    "yank_reason"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)+$",
+      "minLength": 3,
+      "maxLength": 96,
+      "description": "全局唯一。两段式 author.module（首段为作者/组织命名空间），与 cgl-models 的 module.json.id 逐字相同，见 2.3.2 与 2.3.6 一。id 只用于身份识别：目录名、DB scope、条目主键；因含点号，不可用作 i18n 键前缀。唯一性由 cgl-libs CI 全仓库扫描校验。"
+    },
+    "i18n_namespace": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{2,31}$",
+      "description": "该模块的语言包命名空间，单段、无点号、全仓库内全局唯一（由 CI 校验）。与 manifest 的 i18n_namespace 逐字相同。框架文案键一律写作 module.<i18n_namespace>.<flatKey>；后端 register_module_pack 与前端 lookup 都必须用本字段，不得传完整 id（id 含点号会被键路径切分而永远查不到，见 2.3.2 关于 i18n 与 2.3.6 七）。"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "展示名，可为中文。展示名可改，id 不可改。取自 manifest 的 display_name 或 i18n.<locale>.display_name。"
+    },
+    "summary": {
+      "type": "object",
+      "description": "本地化简介，权威形态为 locale map，由 bot 从 manifest 的 description + i18n.<locale>.description 折叠而来（见 2.3.6 一）。必须含 zh-CN 与 en-US；客户端按当前 locale 取值，缺失回退 en-US，再回退 id。",
+      "required": [
+        "zh-CN",
+        "en-US"
+      ],
+      "properties": {
+        "zh-CN": {
+          "$ref": "#/$defs/summaryText"
+        },
+        "en-US": {
+          "$ref": "#/$defs/summaryText"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/summaryText"
+      },
+      "propertyNames": {
+        "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+      },
+      "minProperties": 2
+    },
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "contact",
+        "verified"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "作者/组织名。取自 manifest 的 author.name，逐字相同。"
+        },
+        "contact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "format": "uri",
+          "pattern": "^(https?://|mailto:)",
+          "description": "可追责的联系地址（主页/邮箱）。取自 manifest 的 author.url（优先）或 author.email；二者皆缺则提审失败，参见审核红线第 5 条。"
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "是否已通过官方身份验证（官方模块为 true）。由 cgl-libs 维护者审核后置位，bot 不得自行填写。注意审核红线第 8 条：模块隔离能力（受管控子进程托管 + IPC）落地前，只接受 verified 为 true 的条目，第三方 PR 一律 rejected。"
+        }
+      }
+    },
+    "repo": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "description": "源码仓库地址，供审计，必须为 https。取自 manifest 的 homepage。"
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "SPDX 标识；闭源用 proprietary。审核红线第 3 条：license 为空或非明确标识即拒绝合并。依 2.3.5，proprietary 条目只允许出现在 channel 为 beta 或 dev，不得进入 stable（该跨字段约束由 CI 强制，纯 JSON Schema 不表达）。"
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "stable",
+        "beta",
+        "dev"
+      ],
+      "description": "收录侧字段，由 cgl-libs CI 依据 tag 与审核结论注入，bot 不得指定。客户端默认只展示 stable，其余需用户显式开启（registry.channel 设置项）。依 3.1 规则 4，枚举可扩展，客户端遇未知值忽略该条目。"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\\+([0-9a-zA-Z-]+(\\.[0-9a-zA-Z-]+)*))?$",
+      "maxLength": 128,
+      "description": "当前条目版本，必须严格 semver，且必须等于 Release tag（去掉前缀 v）。"
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "该版本发布时间，RFC3339 UTC，由 bot 从 Release 的 published_at 填入。CI 校验其不晚于当前时间。"
+    },
+    "platforms": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "windows-x86_64",
+          "windows-aarch64",
+          "android-arm64",
+          "linux-x86_64"
+        ]
+      },
+      "description": "支持的平台，权威枚举（2.3.6 三与平台枚举差异清零）：windows-x86_64 | windows-aarch64 | android-arm64 | linux-x86_64。旧枚举 windows-x64 / windows-arm64 / linux-x64 / macos-arm64 全部作废；macOS 不在本项目路线内。依 3.1 规则 4，枚举可扩展，客户端遇未知平台值必须忽略该资产条目而非报错。"
+    },
+    "min_launcher": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\\+([0-9a-zA-Z-]+(\\.[0-9a-zA-Z-]+)*))?$",
+      "description": "最低启动器版本，严格 semver。扁平字段，由 bot 从 manifest 的嵌套 launcher.min 映射而来（见 2.3.6 二）。"
+    },
+    "max_launcher": {
+      "description": "最高启动器版本（含）；null 表示无上限。由 bot 从 manifest 的 launcher.max 映射而来。CI 校验：max_launcher 非 null 时必须可解析为 semver、不得小于 min_launcher（语义倒挂，见审核红线第 4 条）、且不得小于仓库当前推荐启动器版本。",
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\\+([0-9a-zA-Z-]+(\\.[0-9a-zA-Z-]+)*))?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "api_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "模块 API 版本（内核 Module trait 契约版本），当前为 1。CI 校验其属于仓库声明的支持集合（当前仅 1）。"
+    },
+    "icon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "size"
+      ],
+      "description": "模块图标元数据。图标单独存放于 assets/icons/ 而不内联 base64（base64 会让 JSON 体积膨胀 33%，且图标必须能被 HTTP 缓存，见 2.1 设计取舍）。",
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^assets/icons/[^/]+\\.png$",
+          "description": "仓库内相对路径，必须在 assets/icons/ 下，且为 PNG。bot 从 manifest 的 icon 上传后改写为本仓库路径。"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "图标文件 sha256（小写十六进制），由 cgl-libs CI 对上传后的文件计算。"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32768,
+          "description": "图标字节数，必须 <= 32768（32 KB），建议 128x128 PNG。"
+        }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "description": "下载资产列表，每个平台一条。由 bot 依 platforms 与 Release 资产矩阵派生：Release 中缺失某平台产物则提审失败。",
+      "items": {
+        "$ref": "#/$defs/asset"
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "filesystem:read",
+          "filesystem:write",
+          "filesystem:game-dir",
+          "network",
+          "process:spawn",
+          "download:enqueue",
+          "settings:write",
+          "intents:request",
+          "account:read"
+        ]
+      },
+      "description": "权限声明，权威形态为细粒度字符串枚举数组（可为空数组），与 manifest 的 permissions 逐字同值、不做任何转换。9 项权威枚举：filesystem:read / filesystem:write / filesystem:game-dir / network / process:spawn / download:enqueue / settings:write / intents:request / account:read。审核红线第 7 条：声明的 permissions 必须与模块实际行为一致，高危及 filesystem:game-dir / account:read / process:spawn 需在 PR 中说明理由。"
+    },
+    "permissions_derived": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "network",
+        "spawn_process",
+        "write_outside_module_dir"
+      ],
+      "description": "由 permissions 派生的用户可见摘要（三布尔），供列表页快速渲染权限横幅。只读派生值，由 cgl-libs CI 生成，不接受人工填写（人工填写会被 CI 拒绝）。三布尔与 permissions 的一致性由 CI 校验，纯 JSON Schema 无法表达该跨字段约束。唯一映射规则（2.3.6 四）：network = permissions 含 network；spawn_process = permissions 含 process:spawn；write_outside_module_dir = permissions 含 filesystem:game-dir 或 settings:write。",
+      "properties": {
+        "network": {
+          "type": "boolean",
+          "description": "为 true 当且仅当 permissions 含 network。由 CI 校验，见 2.3.6 四。"
+        },
+        "spawn_process": {
+          "type": "boolean",
+          "description": "为 true 当且仅当 permissions 含 process:spawn。由 CI 校验，见 2.3.6 四。"
+        },
+        "write_outside_module_dir": {
+          "type": "boolean",
+          "description": "为 true 当且仅当 permissions 含 filesystem:game-dir 或 settings:write。由 CI 校验，见 2.3.6 四。"
+        }
+      }
+    },
+    "changelog": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "本地化更新说明，至少含 zh-CN。取自 Release 正文，或 manifest 声明 changelog 路径时读取该文件内容并按 locale 归集。",
+      "required": [
+        "zh-CN"
+      ],
+      "properties": {
+        "zh-CN": {
+          "$ref": "#/$defs/changelogText"
+        },
+        "en-US": {
+          "$ref": "#/$defs/changelogText"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/changelogText"
+      },
+      "propertyNames": {
+        "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "approved",
+        "pending",
+        "rejected"
+      ],
+      "description": "审核状态。只有 approved 会进 index.json；该字段由 cgl-libs 侧拥有，bot 提审时一律填 pending。依 3.1 规则 4，枚举可扩展，客户端遇未知值忽略该条目。"
+    },
+    "yanked": {
+      "type": "boolean",
+      "description": "是否已撤回。true 时客户端仍可见但禁止新安装，并展示 yank_reason；由 cgl-libs 维护者拥有，bot 一律填 false。关键原则：yank 优先于删除，保留可审计性（见 2.8.5）。"
+    },
+    "yank_reason": {
+      "description": "yanked 为 true 时必填；yanked 为 false 时必须为 null。该条件依赖由 CI 校验，纯 JSON Schema 不表达其与 yanked 的联动。",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "summaryText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "单条本地化简介，长度上限 200 字符，且不得为空白字符串。"
+    },
+    "changelogText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "单条本地化更新说明，不得为空白字符串。"
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "url",
+        "mirrors",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": [
+            "windows-x86_64",
+            "windows-aarch64",
+            "android-arm64",
+            "linux-x86_64"
+          ],
+          "description": "必须属于条目 platforms（同一套权威枚举）。资产文件名约定 <id>-<version>-<platform>.cglm。"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "主下载地址，必须为 https。审核红线第 6 条：地址必须可达，且不得指向会被覆盖的可变地址（如 .../latest/download/...），除非该地址同时提供 pin 死的 sha256。"
+        },
+        "mirrors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          },
+          "description": "备用镜像，可为空数组。资产层遵循 download.mirror 设置：auto 按 url -> mirrors 顺序；指定镜像名则把匹配域名的地址提前（见 2.6）。"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "字节数，必须大于 0。CI 会流式下载并比对实际字节数。"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "安装包 sha256（小写十六进制），客户端下载后必须校验；不匹配即丢弃并报错。审核红线第 2 条：缺失或与 CI 实际计算值不符即拒绝合并。"
+        }
+      }
+    }
+  }
+}

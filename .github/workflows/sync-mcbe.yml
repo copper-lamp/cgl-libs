@@ -1,0 +1,138 @@
+# 每日同步上游 MCBE 版本库 —— 契约依据 docs/cgl-libs.md 2.4 与 1.4。
+#
+# 数据流（2.4.1）：上游 LiteLDev/minecraft-windows-gdk-version-db 是事实源，
+# 三镜像（jsdelivr / gh-proxy / raw / gitcode）是传输通道，本仓库提供稳定入口
+# 与 sha256 完整性锚点。三者并存，不合并。
+#
+# 1.4 要求：MCBE 版本元数据每日同步 1 次，可接受陈旧窗口 6 小时。
+# 因此 cron 设为每日 02:17 UTC（避开整点排队高峰），并额外允许手动触发。
+
+name: sync-mcbe
+
+on:
+  schedule:
+    # 每日一次（1.4）。选非整点以避开 GitHub Actions 的整点调度拥堵。
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '上游无变化时也强制开 PR（用于上游 commit 变更但内容未变的场景）'
+        type: boolean
+        default: false
+
+# 同步任务串行：并发运行会开两个 PR 并可能互相覆盖 mcbe/ 下的文件。
+concurrency:
+  group: sync-mcbe
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: 同步上游版本清单
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 抓取上游、计算 sha256 与上游 commit，写入 mcbe/manifest.json 与 mcbe/meta.json。
+      # 抓取按镜像顺序重试（jsdelivr -> gh-proxy -> raw），失败即切下一个；
+      # sources 字段记录本次实际尝试的顺序（2.4.3 要求快照该次抓取的实际顺序）。
+      # 全部镜像失败时脚本以非 0 退出且不写半成品文件。
+      - name: Sync upstream metadata
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tools/sync-mcbe.mjs --json
+
+      # 同步产物必须能通过 schema 校验，否则不应该开 PR（2.4.3 的结构约束）。
+      - name: Validate synced snapshot
+        run: node tools/validate.mjs --schema
+
+      - name: Detect changes
+        id: diff
+        run: |
+          if git diff --quiet -- mcbe/manifest.json mcbe/meta.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "上游内容无变化，本次不开 PR。"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            node -e '
+              const m = require("./mcbe/meta.json");
+              console.log(`preview=${m.counts.preview}`);
+              console.log(`release=${m.counts.release}`);
+              console.log(`commit=${m.upstream.commit}`);
+            ' >> "$GITHUB_OUTPUT"
+          fi
+
+      # 开 PR 而不是直推 main：依 1.4，模块元数据与版本元数据的变更都需要可审计的
+      # 人工确认入口；2.4.4 的 P2 阶段也要求上游变更"每日合并为一个 PR"。
+      - name: Create pull request
+        if: steps.diff.outputs.changed == 'true' || inputs.force
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/sync-mcbe
+          delete-branch: true
+          base: main
+          title: 'chore: sync MCBE version metadata'
+          commit-message: |
+            chore: sync MCBE version metadata
+
+            由 sync-mcbe 工作流自动同步上游 LiteLDev/minecraft-windows-gdk-version-db。
+
+            - 上游 commit：${{ steps.diff.outputs.commit }}
+            - preview 条目：${{ steps.diff.outputs.preview }} 条
+            - release 条目：${{ steps.diff.outputs.release }} 条
+
+            本 PR 由定时任务产生，请核对上游 commit 与条目数后合并。
+          body: |
+            ## 自动同步：MCBE 版本元数据
+
+            本 PR 由 `sync-mcbe` 工作流每日定时产生（见 docs/cgl-libs.md 1.4 与 2.4）。
+
+            | 项 | 值 |
+            |---|---|
+            | 上游仓库 | `LiteLDev/minecraft-windows-gdk-version-db` |
+            | 上游 commit | `${{ steps.diff.outputs.commit }}` |
+            | preview 条目 | ${{ steps.diff.outputs.preview }} |
+            | release 条目 | ${{ steps.diff.outputs.release }} |
+
+            变更文件：
+
+            - `mcbe/manifest.json`：结构化快照，为上游清单提供 sha256 完整性锚点
+            - `mcbe/meta.json`：同步元信息与 manifest 摘要
+
+            说明（依 2.4.2）：上游清单只提供 md5，md5 不作为安全边界。本次同步对上游
+            原始字节计算了 sha256 并写入 `upstream.raw_sha256`，客户端可据此验证快照
+            确实来自官方清单。
+
+            ### 合并前自查
+
+            - [ ] 上游 commit 与条目数与预期相符（无异常骤降）
+            - [ ] preview / release 条目数变化可解释
+            - [ ] CI 校验通过
+          labels: |
+            automated
+            sync-mcbe
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### MCBE 同步结果"
+            echo ""
+            echo "- 变更：${{ steps.diff.outputs.changed }}"
+            echo "- 上游 commit：${{ steps.diff.outputs.commit }}"
+            echo "- preview / release：${{ steps.diff.outputs.preview }} / ${{ steps.diff.outputs.release }}"
+          } >> "$GITHUB_STEP_SUMMARY"

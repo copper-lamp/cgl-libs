@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/copper-lamp/cgl-libs/main/schema/by-id.schema.json",
+  "title": "cgl-libs 模块 id 定位表 modules/by-id.json",
+  "description": "扁平映射 { schema_version, <module-id>: <shard-path> }，契约依据 docs/cgl-libs.md 2.3.3。用于已知 id、要 O(1) 拿到分片路径的场景（如检查某已装模块是否有更新），避免为了一个 id 遍历全部分片。",
+  "type": "object",
+  "required": [
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "同 index.json。"
+    }
+  },
+  "additionalProperties": {
+    "type": "string",
+    "pattern": "^modules/[^/]+\\.json$",
+    "description": "键为模块 id（两段式 author.module），值为该 id 所在分片的相对路径。id 正则约束由 CI 对全仓库 id 统一校验，此处不再重复表达（additionalProperties 的值类型约束已保证映射语义）。"
+  },
+  "propertyNames": {
+    "pattern": "^(schema_version|[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)+)$"
+  }
+}
