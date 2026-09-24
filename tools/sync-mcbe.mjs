@@ -180,8 +180,14 @@ function normalizeEntry(raw, where) {
     fail(`${where}（${raw.version}）缺少 urls 数组`);
   }
   for (const u of raw.urls) {
-    if (typeof u !== 'string' || !/^https:\/\//.test(u)) {
-      fail(`${where}（${raw.version}）的 urls 中存在非 https 地址：${JSON.stringify(u)}`);
+    if (typeof u !== 'string') {
+      fail(`${where}（${raw.version}）的 urls 中存在非字符串项：${JSON.stringify(u)}`);
+    }
+    // 上游对微软自家 CDN（assets1.xboxlive.com / .cn）的下载地址使用 http（下载阶段
+    // 走 Store 认证/签名逻辑），这些是合法地址；其余地址必须是 https，避免任意明文下载。
+    const isMicrosoftCdn = /^http:\/\/[a-z0-9-]+\.xboxlive\.(com|cn)\//.test(u);
+    if (!isMicrosoftCdn && !/^https:\/\//.test(u)) {
+      fail(`${where}（${raw.version}）的 urls 中存在非合法下载地址：${JSON.stringify(u)}`);
     }
   }
   if (!Number.isInteger(raw.timestamp) || raw.timestamp < 0) {
@@ -244,8 +250,8 @@ function parseUpstream(buffer) {
     return null;
   };
 
-  const previewRaw = pick('preview_versions', 'previewVersion', 'preview');
-  const releaseRaw = pick('release_versions', 'releaseVersion', 'release');
+  const previewRaw = pick('preview_versions', 'previewVersions', 'previewVersion', 'preview');
+  const releaseRaw = pick('release_versions', 'releaseVersions', 'releaseVersion', 'release');
 
   if (previewRaw === null && releaseRaw === null) {
     fail(

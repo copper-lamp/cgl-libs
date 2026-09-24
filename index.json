@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-24T15:18:07Z",
-  "repo_commit": "0000000000000000000000000000000000000000",
+  "generated_at": "2026-09-24T16:42:37Z",
+  "repo_commit": "fa71563783849eb8e092ce1093fdb40ed2030015",
   "min_launcher": "0.1.0",
   "entries": [
     {
       "kind": "module_index",
       "path": "modules/_index.json",
-      "sha256": "7c03fa1940ce4eb95e113fd3d2b2327501fd74cc3139fc6844d3d26a5cc682ab",
+      "sha256": "7c778628ef7c56739808345cc31feb121583ce23a43feafbc3e4a83d50a24615",
       "size": 98,
       "cache_ttl_sec": 3600,
       "urls": [
-        "https://cdn.jsdelivr.net/gh/copper-lamp/cgl-libs@0000000000000000000000000000000000000000/modules/_index.json",
+        "https://cdn.jsdelivr.net/gh/copper-lamp/cgl-libs@fa71563783849eb8e092ce1093fdb40ed2030015/modules/_index.json",
         "https://gh-proxy.com/https://raw.githubusercontent.com/copper-lamp/cgl-libs/refs/heads/main/modules/_index.json",
         "https://raw.githubusercontent.com/copper-lamp/cgl-libs/refs/heads/main/modules/_index.json"
       ]
@@ -23,9 +23,21 @@
       "size": 26,
       "cache_ttl_sec": 3600,
       "urls": [
-        "https://cdn.jsdelivr.net/gh/copper-lamp/cgl-libs@0000000000000000000000000000000000000000/modules/by-id.json",
+        "https://cdn.jsdelivr.net/gh/copper-lamp/cgl-libs@fa71563783849eb8e092ce1093fdb40ed2030015/modules/by-id.json",
         "https://gh-proxy.com/https://raw.githubusercontent.com/copper-lamp/cgl-libs/refs/heads/main/modules/by-id.json",
         "https://raw.githubusercontent.com/copper-lamp/cgl-libs/refs/heads/main/modules/by-id.json"
+      ]
+    },
+    {
+      "kind": "mcbe_manifest",
+      "path": "mcbe/manifest.json",
+      "sha256": "7b956c9384ce09bdf13e76d738229244ac22dd1940d91e9a2921659bec290f73",
+      "size": 195143,
+      "cache_ttl_sec": 21600,
+      "urls": [
+        "https://cdn.jsdelivr.net/gh/copper-lamp/cgl-libs@fa71563783849eb8e092ce1093fdb40ed2030015/mcbe/manifest.json",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/copper-lamp/cgl-libs/refs/heads/main/mcbe/manifest.json",
+        "https://raw.githubusercontent.com/copper-lamp/cgl-libs/refs/heads/main/mcbe/manifest.json"
       ]
     }
   ]

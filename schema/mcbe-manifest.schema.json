@@ -106,9 +106,9 @@
           "items": {
             "type": "string",
             "format": "uri",
-            "pattern": "^https://"
+            "pattern": "^(https://|http://[a-z0-9-]+\\.xboxlive\\.(com|cn)/)"
           },
-          "description": "微软 CDN 直链，.xboxlive.cn 在前。"
+          "description": "微软 CDN 直链，.xboxlive.cn 在前。微软官方对 xboxlive 域提供裸 http 直链（下载阶段走 Store 认证/签名），故对这几个自家域放行 http；其余地址必须为 https，避免任意明文下载。"
         },
         "timestamp": {
           "type": "integer",
