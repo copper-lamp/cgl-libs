@@ -113,7 +113,7 @@ export const CHANNELS = ['stable', 'beta', 'dev'];
 export const STATUSES = ['approved', 'pending', 'rejected'];
 
 /** 仓库当前支持的 api_version 集合，2.8.2 第 9 步。 */
-export const SUPPORTED_API_VERSIONS = new Set([1]);
+export const SUPPORTED_API_VERSIONS = new Set([1, 2]);
 
 // ---------------------------------------------------------------------------
 // 路径与 JSON 读写
