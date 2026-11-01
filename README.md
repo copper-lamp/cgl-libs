@@ -3,6 +3,21 @@
 `cgl-libs` 是铜傀儡（CopperGolem）生态的**唯一官方元数据源**：启动器运行时需要的、会随时间变化且不由用户本机产生的数据，全部从这里拉取。本仓库只存放元数据与索引，不存放体积庞大的二进制本体。
 
 
+### 默认分支与旧克隆迁移
+
+本仓库已于 2026-11-01 通过 GitHub 正式分支重命名从 `master` 迁移到 `main`。PR 目标、发布工作流、生成物守卫与启动器元数据地址统一使用 `main`，不要重新推送旧的 `master` 分支，也不要把上游 LiteLDev 仓库的分支一起替换。
+
+已有旧克隆在确认工作区状态后执行：
+
+```bash
+git branch -m master main
+git fetch origin --prune
+git branch --set-upstream-to=origin/main main
+git remote set-head origin -a
+```
+
+若本地已经使用 `main`，跳过第一条。不要用强制推送或重置来处理未同步的本地提交。GitHub 页面可能重定向旧分支链接，但原始文件地址不会自动迁移，外部客户端应使用 `refs/heads/main`。
+
 ### 生成物：不要手工编辑
 
 以下文件全部由 CI 生成，人工修改会被 `validate.yml` 直接拒绝：

@@ -442,10 +442,12 @@ test('workflow contracts keep guards before generation and restrict sync PR path
   const full = /^node tools\/validate\.mjs --schema$/;
   const check = /^node tools\/build-index\.mjs --check$/;
   const validate = workflow('validate.yml');
+  assert.match(validate, /^ {4}branches: \[main\]\s*$/m);
   assertCommandOrder(workflowCommands(validate), [
     /^node tools\/validate\.mjs --generated-guard$/, source, build, full, check,
   ]);
   const sync = workflow('sync-mcbe.yml');
+  assert.match(sync, /^ {10}base: main\s*$/m);
   assertCommandOrder(workflowCommands(sync), [/^node tools\/sync-mcbe\.mjs --json$/, source, build, full, check]);
   const addPaths = sync.match(/^\s{10}add-paths:\s*\|\r?\n((?: {12}[^\r\n]*(?:\r?\n|$))+)/m);
   assert.ok(addPaths, 'Sync PR must explicitly restrict staged changes');
@@ -454,6 +456,7 @@ test('workflow contracts keep guards before generation and restrict sync PR path
   ]);
   const publish = workflow('build-index.yml');
   const activePublish = publish.split(/\r?\n/).filter((line) => !line.trimStart().startsWith('#')).join('\n');
+  assert.match(activePublish, /^ {4}branches: \[main\]\s*$/m);
   assert.match(activePublish, /^\s+workflow_dispatch:/m);
   assert.match(activePublish, /^\s+paths:/m);
   assert.doesNotMatch(activePublish, /^\s+paths-ignore:/m);
