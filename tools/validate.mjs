@@ -4,8 +4,11 @@
 //
 // 用法：
 //   node tools/validate.mjs --schema               JSON Schema 校验 + 语义校验（离线，CI 主入口）
+//   node tools/validate.mjs --generated-guard      仅检查生成物是否被人工改动（需 git，必须在生成前运行）
+//   node tools/validate.mjs --schema --source-only
+//                                                  仅校验输入元数据，不要求旧索引与新输入一致
 //   node tools/validate.mjs --schema --generated-guard
-//                                                  追加"拒绝人工改动生成物"检查（需 git）
+//                                                  schema / 语义 / 摘要校验，并检查生成物改动
 //   node tools/validate.mjs --schema --assets      追加资产下载复核（需网络，超时 60s）
 //   node tools/validate.mjs --links                追加链接可达性 HEAD 探测（需网络）
 //   node tools/validate.mjs --schema --strict       把 warning 也当作失败
@@ -33,6 +36,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
   REPO_ROOT,
@@ -114,6 +118,7 @@ function parseArgs(argv) {
   const opts = {
     schema: false,
     generatedGuard: false,
+    sourceOnly: false,
     assets: false,
     links: false,
     strict: false,
@@ -124,6 +129,7 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--schema') opts.schema = true;
     else if (arg === '--generated-guard') opts.generatedGuard = true;
+    else if (arg === '--source-only') opts.sourceOnly = true;
     else if (arg === '--assets') opts.assets = true;
     else if (arg === '--links') opts.links = true;
     else if (arg === '--strict') opts.strict = true;
@@ -138,6 +144,7 @@ function parseArgs(argv) {
       process.exit(2);
     }
   }
+  if (opts.sourceOnly) opts.schema = true;
   if (!opts.schema && !opts.assets && !opts.links && !opts.generatedGuard) {
     // 无参数时默认做离线全量校验，避免"什么都不做还返回 0"的假通过。
     opts.schema = true;
@@ -153,7 +160,8 @@ function printHelp() {
 
 选项:
   --schema              JSON Schema 校验 + 全部离线语义校验（默认）
-  --generated-guard     拒绝人工改动生成物（diff origin/main...HEAD）
+  --source-only         仅校验输入元数据（隐含 --schema，不比对尚未重建的索引）
+  --generated-guard     拒绝人工改动生成物；单独使用时仅检查 diff（生成前执行）
   --assets              下载资产并复核 sha256/size（需网络，单文件超时 60s）
   --links               对 assets[].url / mirrors 做 HEAD 可达性探测（需网络）
   --strict              把 warning 也视为失败
@@ -317,6 +325,7 @@ function stepSchema(opts) {
     ['index.json', topIndexSchema],
   ]) {
     if (!schema) continue;
+    if (opts.sourceOnly && GENERATED_FILES.includes(name)) continue;
     const abs = join(REPO_ROOT, name);
     if (!existsSync(abs)) continue;
     const doc = readJsonFile(abs);
@@ -672,6 +681,48 @@ function stepYankAndAssets(entries) {
 }
 
 // ---------------------------------------------------------------------------
+// MCBE 输入对的一致性：生成前也必须验证，不能靠重建索引掩盖半份同步结果。
+// ---------------------------------------------------------------------------
+
+function stepMcbeConsistency() {
+  const step = 'step10-mcbe-snapshot';
+  const manifestAbs = join(REPO_ROOT, MCBE_MANIFEST_PATH);
+  const metaPath = 'mcbe/meta.json';
+  const metaAbs = join(REPO_ROOT, metaPath);
+  const hasManifest = existsSync(manifestAbs);
+  const hasMeta = existsSync(metaAbs);
+  if (!hasManifest && !hasMeta) return;
+  if (!hasManifest || !hasMeta) {
+    error(step, 'mcbe/', '(文件)', 'manifest.json 与 meta.json 同时存在',
+      `${hasManifest ? metaPath : MCBE_MANIFEST_PATH} 缺失`);
+    return;
+  }
+
+  const manifest = readJsonFile(manifestAbs);
+  const meta = readJsonFile(metaAbs);
+  if (manifest === null || typeof manifest !== 'object' || meta === null || typeof meta !== 'object') return;
+
+  const actualSha = sha256OfFile(manifestAbs);
+  if (meta.manifest_sha256 !== actualSha) {
+    error(step, metaPath, 'manifest_sha256', actualSha, String(meta.manifest_sha256));
+  }
+  if (meta.manifest_path !== MCBE_MANIFEST_PATH) {
+    error(step, metaPath, 'manifest_path', MCBE_MANIFEST_PATH, String(meta.manifest_path));
+  }
+  for (const field of ['schema_version', 'generated_at', 'upstream']) {
+    if (!isDeepStrictEqual(meta[field], manifest[field])) {
+      error(step, metaPath, field, JSON.stringify(manifest[field]), JSON.stringify(meta[field]));
+    }
+  }
+  for (const [channel, versions] of [['preview', manifest.preview_versions], ['release', manifest.release_versions]]) {
+    if (Array.isArray(versions) && meta.counts?.[channel] !== versions.length) {
+      error(step, metaPath, `counts.${channel}`, String(versions.length), String(meta.counts?.[channel]));
+    }
+  }
+  ok(step, '已校验 MCBE 清单与同步元信息的摘要、上游、时间及条目数');
+}
+
+// ---------------------------------------------------------------------------
 // 步骤：生成物内部一致性（分片大小、_index 与分片摘要吻合、index.json 锚点）
 // ---------------------------------------------------------------------------
 
@@ -899,18 +950,23 @@ try {
   if (opts.generatedGuard) stepGeneratedGuard();
   if (opts.schema) stepSchema(opts);
 
-  const entries = collectEntries();
-  stepIdUnique(entries);
-  stepNamespaceUnique(entries);
-  stepNamingAndShard(entries);
-  stepSemver(entries);
-  stepCompat(entries);
-  stepLicense(entries);
-  stepYankAndAssets(entries);
-  stepGeneratedConsistency();
+  // 守卫可独立运行：合法输入变更尚未生成索引时，不应因旧摘要失败。
+  // 显式组合 --schema / --assets / --links 时仍执行完整元数据校验。
+  if (opts.schema || opts.assets || opts.links) {
+    const entries = collectEntries();
+    stepIdUnique(entries);
+    stepNamespaceUnique(entries);
+    stepNamingAndShard(entries);
+    stepSemver(entries);
+    stepCompat(entries);
+    stepLicense(entries);
+    stepYankAndAssets(entries);
+    stepMcbeConsistency();
+    if (!opts.sourceOnly) stepGeneratedConsistency();
 
-  if (opts.assets) await stepAssets(entries);
-  if (opts.links) await stepLinks(entries);
+    if (opts.assets) await stepAssets(entries);
+    if (opts.links) await stepLinks(entries);
+  }
 } catch (err) {
   if (err instanceof SchemaUnsupportedError) {
     error('step4-schema', 'schema', '(关键字)', '受支持', err.message);
@@ -946,6 +1002,7 @@ function describeMode(o) {
   const parts = [];
   if (o.schema) parts.push('schema');
   if (o.generatedGuard) parts.push('generated-guard');
+  if (o.sourceOnly) parts.push('source-only');
   if (o.assets) parts.push('assets');
   if (o.links) parts.push('links');
   if (o.strict) parts.push('strict');

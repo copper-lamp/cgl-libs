@@ -16,13 +16,14 @@ on:
       - 'assets/**'
       - 'schema/**'
       - 'tools/**'
+      - '.gitattributes'
       - '.github/workflows/build-index.yml'
-    # 防循环（2.8.4 第 6 步）：生成物在仓库根目录，必须显式排除。
-    # 没有这段，本工作流提交 index.json 后会被自己的 push 再次触发，形成无限循环。
-    paths-ignore:
-      - 'index.json'
-      - 'index.json.sha256'
-      - 'index.json.minisig'
+      # 同一事件不能同时使用 paths 与 paths-ignore，排除项放在 paths 的末尾。
+      # 根目录的 index.json / sha256 / minisig 没有命中正向规则，无需再次排除。
+      - '!modules/_index.json'
+      - '!modules/by-id.json'
+  # 用于修复旧快照、签名 Secret 配置后重试，不必再制造输入变更。
+  workflow_dispatch:
 
 # 索引必须串行生成：两次并发运行会互相覆盖生成物与提交，导致 main 上出现
 # "分片 sha256 与 _index.json 记录值不一致"的中间态（违反 1.8 一致性要求）。
@@ -45,6 +46,8 @@ jobs:
         with:
           # 需要完整历史以便提交与溯源；token 需可写才能 push 生成物。
           fetch-depth: 0
+          # 队列中的旧事件也重建最新 main，不能把旧快照的派生物发布到新提交之上。
+          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node
@@ -52,10 +55,20 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Run toolchain regression tests
+        run: node --test tools/tests/metadata-workflow.test.mjs
+
+      # 先校验输入再生成，不能用旧索引摘要阻止合法的元数据更新。
+      - name: Validate source metadata before generation
+        run: node tools/validate.mjs --schema --source-only
+
       # 生成 index.json / 分片 / _index.json / by-id.json / index.json.sha256。
-      # GITHUB_SHA 由 runner 注入，脚本据此写入 repo_commit（2.8.4 第 3 步）。
+      # checkout 可能比事件 GITHUB_SHA 更新，以实际输入 HEAD 作为溯源 commit。
       - name: Build index
-        run: node tools/build-index.mjs
+        run: node tools/build-index.mjs --commit "$(git rev-parse HEAD)"
+
+      - name: Validate generated metadata
+        run: node tools/validate.mjs --schema
 
       # 分片超过 256 KB 时 build-index 会以非 0 退出并提示调整字母范围表（2.3.4）。
       # 该失败是刻意的：自动再切分会改变 range 语义，导致客户端缓存失效、URL 不稳定。
@@ -64,12 +77,14 @@ jobs:
       # 密钥来自仓库 Secret MINISIGN_SECRET_KEY；缺失时 sign.mjs 会明确失败而不是
       # 写出占位签名（2.5 规定 minisig 是客户端的安全锚点）。
       - name: Sign index
+        id: sign
         env:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
         run: node tools/sign.mjs
 
       # 提交前先自查：避免把一份验签不过或结构不对的索引推上 main。
       - name: Verify signature before commit
+        id: verify_signature
         env:
           MINISIGN_PUBLIC_KEY: ${{ secrets.MINISIGN_PUBLIC_KEY }}
         run: node tools/sign.mjs --verify
@@ -129,5 +144,6 @@ jobs:
             echo "- 模块条目：${{ steps.stats.outputs.modules }}"
             echo "- 分片数：${{ steps.stats.outputs.shards }}"
             echo "- 索引条目：${{ steps.stats.outputs.entries }}"
-            echo "- 签名：已生成并自校验通过"
+            echo "- 签名生成：${{ steps.sign.outcome }}"
+            echo "- 签名验证：${{ steps.verify_signature.outcome }}"
           } >> "$GITHUB_STEP_SUMMARY"

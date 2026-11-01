@@ -56,20 +56,28 @@ jobs:
           node --version
           echo "PR base: ${{ github.event.pull_request.base.ref }}"
 
-      # 3) 拒绝人工改动生成物。
-      #    这些文件必须由 CI 产出：人工改动会让索引与分片摘要对不上，
-      #    客户端会因 sha256 校验失败而拒绝整份元数据（见 1.8 与 2.2）。
+      - name: Run toolchain regression tests
+        run: node --test tools/tests/metadata-workflow.test.mjs
+
+      # 3) 守卫必须在生成前执行，否则 CI 自己生成的改动也会被误判为人工修改。
+      #    单独指定 --generated-guard 只检查 diff，不拿新输入与旧索引比较。
       - name: Reject manual edits to generated files
         run: node tools/validate.mjs --generated-guard
+
+      # 先校验输入，避免重建覆盖错误输入；输入变更尚未进入旧索引是正常状态。
+      - name: Validate source metadata before generation
+        run: node tools/validate.mjs --schema --source-only
+
+      - name: Build index for pull request
+        run: node tools/build-index.mjs
 
       # 4~9、12) schema + 全部离线语义校验（id/命名空间唯一、命名规范、分片归属、
       #          semver、兼容区间、api_version、许可证合规、生成物内部一致性）。
       - name: Validate schema and metadata rules
         run: node tools/validate.mjs --schema
 
-      # 13) 本地可重复性：重新生成一遍并与仓库内版本比对。
-      #     generated_at 会随时间变化，比对时按确定性规则忽略该字段；
-      #     具体策略见 tools/build-index.mjs 头部"确定性说明"。
+      # 13) 比对本次 CI 刚生成的产物，而不是要求 PR 同时手改旧索引。
+      #     --check 锚定磁盘 index.json 的 generated_at / repo_commit，复现整条哈希链。
       - name: Verify generated index is reproducible
         run: node tools/build-index.mjs --check
 
@@ -90,6 +98,7 @@ jobs:
           {
             echo "### cgl-libs PR 校验"
             echo ""
-            echo "- 生成物守卫、schema、语义规则、可重复性、资产摘要均已执行"
+            echo "- 任务结果：${{ job.status }}"
+            echo "- 校验中途失败时后续步骤会跳过，实际执行情况以上方步骤状态为准"
             echo "- 链接探测为 warning 级（2.8.2 第 11 步），失败不阻断合并"
           } >> "$GITHUB_STEP_SUMMARY"

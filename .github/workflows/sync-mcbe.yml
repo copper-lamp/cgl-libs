@@ -55,9 +55,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tools/sync-mcbe.mjs --json
 
-      # 同步产物必须能通过 schema 校验，否则不应该开 PR（2.4.3 的结构约束）。
+      # 新快照尚未写入旧 index.json，先校验输入，再重建临时生成物做完整校验。
+      # 不降低 sha256/size 校验强度，也不把临时生成物带进同步 PR。
+      - name: Validate synced source metadata
+        run: node tools/validate.mjs --schema --source-only
+
+      - name: Build index for synced snapshot
+        run: node tools/build-index.mjs
+
       - name: Validate synced snapshot
         run: node tools/validate.mjs --schema
+
+      - name: Verify synced index is reproducible
+        run: node tools/build-index.mjs --check
 
       - name: Detect changes
         id: diff
@@ -82,6 +92,10 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # 只提交同步输入；索引、摘要、签名仍由合并后的发布工作流统一产出。
+          add-paths: |
+            mcbe/manifest.json
+            mcbe/meta.json
           branch: chore/sync-mcbe
           delete-branch: true
           base: main

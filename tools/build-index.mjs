@@ -7,7 +7,7 @@
 //   node tools/build-index.mjs --check           重新生成后与仓库内已有生成物比对，不一致则退出码 1
 //   node tools/build-index.mjs --frozen-time <RFC3339>
 //                                                指定 generated_at，用于本地复现与调试
-//   node tools/build-index.mjs --commit <sha>    指定 repo_commit（默认取 GITHUB_SHA 或本地 git）
+//   node tools/build-index.mjs --commit <sha>    指定 repo_commit（写入默认取 GITHUB_SHA 或本地 git；检查默认取磁盘索引）
 //
 // ---------------------------------------------------------------------------
 // 确定性说明（对应 1.8「索引里记录的分片 sha256 与分片内容必须由同一次 CI 运行产出」）
@@ -39,13 +39,15 @@
 // 配套规则：
 //   1. --frozen-time 显式指定时间（本地复现用），优先级高于上述锚定。
 //   2. 结构比对仍会剔除生成时刻字段本身，作为第二道保险。
-//   3. repo_commit 的处理见下面第 3 条（未 pin 时不参与结构比对）。
+//   3. --check 未显式指定 --commit 时同样锚定磁盘 index.json 的 repo_commit，
+//      镜像 URL 和最终 checksum 都依赖它；不能只忽略该字段而改用新的 HEAD。
 //   4. 整个脚本**不访问网络**：索引层 urls 是纯字符串模板拼接（2.8.4），
 //      mcbe/manifest.json 缺失时跳过该 entry 而不报错。
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
   REPO_ROOT,
@@ -114,7 +116,7 @@ function printHelp() {
 选项:
   --check                重新生成并与仓库内已有生成物比对，不一致退出码为 1
   --frozen-time <RFC3339> 覆盖 generated_at（确定性复现）
-  --commit <sha>         覆盖 repo_commit（默认 GITHUB_SHA -> git rev-parse HEAD）
+  --commit <sha>         覆盖 repo_commit（写入默认 GITHUB_SHA -> git HEAD；--check 默认磁盘索引）
   --json                 以 JSON 输出机器可读结果
   -h, --help             显示本帮助
 
@@ -133,8 +135,23 @@ function fail(message) {
 // repo_commit 解析
 // ---------------------------------------------------------------------------
 
-function resolveCommit(explicit) {
+function resolveCommit(explicit, check) {
   if (explicit) return { value: explicit, source: '--commit' };
+  // --check 要复现已发布的整条哈希链。生成物提交、后续 PR 或 runner 的 GITHUB_SHA
+  // 都可能已前进；只忽略 repo_commit 字段不够，镜像 URL 和 index 摘要也依赖它。
+  if (check) {
+    const indexPath = join(REPO_ROOT, 'index.json');
+    if (existsSync(indexPath)) {
+      try {
+        const doc = JSON.parse(readFileSync(indexPath, 'utf8'));
+        if (typeof doc.repo_commit === 'string' && /^[0-9a-f]{7,40}$/.test(doc.repo_commit)) {
+          return { value: doc.repo_commit, source: '磁盘 index.json 的 repo_commit' };
+        }
+      } catch {
+        // 缺失、损坏或非法的索引仍由 --check 的结构与溯源守卫明确报错。
+      }
+    }
+  }
   if (process.env.GITHUB_SHA && /^[0-9a-f]{7,40}$/.test(process.env.GITHUB_SHA)) {
     return { value: process.env.GITHUB_SHA, source: 'GITHUB_SHA' };
   }
@@ -388,11 +405,37 @@ function stableStringify(value) {
 }
 
 // ---------------------------------------------------------------------------
+// 写盘保全：来源和生成物尚共用目录，拒绝无法证明安全的覆盖或删除。
+// ---------------------------------------------------------------------------
+
+function assertShardEntriesPreserved(files) {
+  for (const shard of listShardFiles()) {
+    const replacement = files.get(shard.relativePath);
+    const willDelete = !replacement && isGeneratedShardFile(shard.relativePath);
+    if (!replacement && !willDelete) continue;
+
+    const original = JSON.parse(readFileSync(shard.absPath, 'utf8'));
+    for (const entry of original.modules) {
+      const outputPath = typeof entry.id === 'string' ? shardPathForRange(shardRangeForId(entry.id)) : null;
+      const retained = outputPath === null ? [] : (files.get(outputPath)?.doc?.modules ?? []);
+      if (retained.some((candidate) => isDeepStrictEqual(candidate, entry))) continue;
+      fail(
+        `拒绝${willDelete ? '删除' : '覆盖'} ${shard.relativePath}：条目 ${JSON.stringify(entry.id ?? '(无 id)')} ` +
+        '没有完整保留在本次生成结果中。未写入或删除任何生成物。\n' +
+        '  源分片与生成分片目前共用目录和结构，不能仅凭格式推断来源后丢弃唯一条目，\n' +
+        '  也不能用 approved 输出覆盖 pending / rejected 输入。请先明确输入与生成物的所有权，\n' +
+        '  不要删除源数据或绕过该保全检查来让 CI 通过。',
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 主流程
 // ---------------------------------------------------------------------------
 
 const opts = parseArgs(process.argv.slice(2));
-const commitInfo = resolveCommit(opts.commit);
+const commitInfo = resolveCommit(opts.commit, opts.check);
 
 /**
  * 决定本次重建使用的 generated_at。
@@ -460,6 +503,10 @@ const report = {
 };
 
 if (!opts.check) {
+  // 所有保全检查都必须在第一次写入或删除之前完成。标准源分片与生成分片
+  // 目前共用目录和结构，不能仅凭形状认定一份非空文件可以安全丢弃。
+  assertShardEntriesPreserved(files);
+
   // 写盘模式：清理"本次不再产出、但确实是自己旧产物"的分片，避免幽灵分片残留。
   // 关键约束：只删 isOwnGeneratedShardFile 认定为产物的文件。维护者手写的源分片一律
   // 不动——哪怕它当前没有 approved 条目，也可能含着待审核的 pending 条目，

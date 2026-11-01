@@ -1,0 +1,4 @@
+# Integrity checks and signatures use raw bytes; keep fresh Windows/Linux checkouts identical.
+*.json text eol=lf
+*.sha256 text eol=lf
+*.minisig text eol=lf

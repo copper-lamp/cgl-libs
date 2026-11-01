@@ -118,18 +118,34 @@
 ## 八、本地开发
 
 ```bash
-# 校验（schema + sha256 + 链接 + id 唯一 + semver）
-node tools/validate.mjs --schema
-node tools/validate.mjs --assets
+# 从 cgl-libs 仓库根目录运行。先检查提交，再校验输入，不能把旧索引与新输入直接比较。
+node tools/validate.mjs --generated-guard
+node tools/validate.mjs --schema --source-only
 
-# 重新生成索引与分片，并与仓库内已有文件比对（CI 用这条保证生成确定性）
+# 本地重建索引、分片和摘要后，再做完整的 schema / 语义 / sha256 / size 校验。
+node tools/build-index.mjs
+node tools/validate.mjs --schema
 node tools/build-index.mjs --check
 
-# 生成 index.json.sha256 与 minisign 签名
+# 网络校验（链接探测是单独的 --links，不包含在 --schema 中）
+node tools/validate.mjs --assets
+node tools/validate.mjs --links
+
+# 隔离临时仓库中的离线回归测试，不修改真实清单或签名
+node --test tools/tests/metadata-workflow.test.mjs
+
+# 发布时才用受控私钥签名，再用公钥验证（PR 校验不需要签名私钥）
 node tools/sign.mjs
+node tools/sign.mjs --verify
 ```
 
-脚本只依赖 Node 20 标准库，无第三方运行时依赖。
+脚本只依赖 Node 20 标准库，无第三方运行时依赖。`--check` 默认沿用已有索引的 `generated_at` 与 `repo_commit`，后续提交不会使同一份产物误报漂移；显式 `--commit` 仍严格比对。JSON、摘要与签名文本固定使用 LF，避免 Windows checkout 改变原始字节。
+
+CI 的执行顺序与上面一致：PR 先检查生成物改动，再校验输入、生成、完整校验与复现；同步任务先获取新快照，再临时重建和校验，创建 PR 时仅提交 `mcbe/manifest.json` 与 `mcbe/meta.json`。不要把本地生成物混入输入 PR，也不要在生成后再运行生成物改动守卫。
+
+已有同步运行可在修复合并后重新运行；若 `main` 已经存在旧索引，在 Actions 手动运行 `build-index` 的 `workflow_dispatch` 来重建并签名，需要已配置 `MINISIGN_SECRET_KEY` 与 `MINISIGN_PUBLIC_KEY`。校验失败时不会跳过完整性或伪造签名。
+
+**模块发布的现有限制**：源分片和生成分片尚未分离目录，标准四键结构不能证明文件是可丢弃的旧产物。生成器会在任何写入 / 删除前检查完整条目的保留情况；唯一标准分片被误认成生成物、或输出会覆盖待审条目时，明确失败且不改产物。不要删掉条目或绕过检查来让 CI 通过；模块源 / 产物目录迁移仍是待办。本次 MCBE 工作流修复不宣称解决该所有权问题，也未改动客户端的发布入口。
 
 ## 九、许可证
 
