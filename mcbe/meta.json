@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-11-02T09:25:38Z",
+  "generated_at": "2026-11-07T08:43:52Z",
   "upstream": {
     "repo": "LiteLDev/minecraft-windows-gdk-version-db",
-    "commit": "f19518c626daaca098d32bbef3ed57f8a89cc4b1",
-    "raw_sha256": "7bbd7deb08d0fbc5a159ca63989e6a281da309a7caeac1d52b1f5dcf8f07515e",
+    "commit": "75eb9e6b7689ff0f262a8861e7aabf6e07ccc37d",
+    "raw_sha256": "dccb6071968bd86d17167d1b6c15809ac46236954d77d5216dbe87f64047688f",
     "sources": [
       "https://fastly.jsdelivr.net/gh/LiteLDev/minecraft-windows-gdk-version-db@main/historical_versions.json"
     ],
     "file_version": 1
   },
   "counts": {
-    "preview": 57,
-    "release": 30
+    "preview": 58,
+    "release": 32
   },
   "manifest_path": "mcbe/manifest.json",
-  "manifest_sha256": "3d61611117642987b904f2714628c4c012dc9d1235fb99cd61cec4c9dbb3da81"
+  "manifest_sha256": "d62464d9d5c0331fdc6ddfb3f44768bc77b8d3adda0a50e5166705c44c2627e2"
 }
